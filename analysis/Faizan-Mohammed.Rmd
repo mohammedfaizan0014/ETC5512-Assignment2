@@ -1,0 +1,443 @@
+---
+title: "Characterising the constituents for the House of Representative members in Victoria"
+subtitle: "ETC5512 Assignment 2, Master of Business Analytics"
+author: "Prepared by Mohammed Faizan, 31939872, mfai0014@student.monash.edu" 
+date: '`r Sys.Date()`'
+output: 
+  html_document:
+    includes:
+      before_body: header.html
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, 
+                      messages = FALSE, 
+                      warning = FALSE)
+library(tidyverse)
+library(sf)
+library(glue)
+library(unglue)
+library(readr)
+library(DBI)
+library(RSQLite)
+```
+```{r}
+con <- dbConnect(RSQLite::SQLite())
+```
+
+
+
+```{r}
+data_path <- here::here("data/")
+path <-  glue::glue(data_path, "/australian_{source}_data_{year}/", 
+                    source = c("election", "census"), year = c("2019", "2016"))
+election_paths <- glue::glue(path[1], "/House{file}Download-24310.csv", 
+                        file = c("DopByDivision","MembersElected"))
+census_paths <- glue::glue(path[2], "/2016 Census GCP All Geographies for VIC/SA1/VIC/2016Census_G{number}{alpha}_VIC_SA1.csv", 
+                         number = c("01","04","04","09","09","09","09","09","09","08","14","46","46"), alpha = c("","A","B","A","B","C","D","E","F","","","A","B"))
+```
+
+```{r}
+vic_map_path <- glue::glue(path[1], "/vic-july-2018-esri/E_AUGFN3_region.shp")
+vic_map <- read_sf(vic_map_path)
+constituents <- c("Melbourne","Kooyong","Macnamara","Chisholm","Higgins","Goldstein","Hotham")
+```
+
+```{r constituent_sa1boundaries_matched}
+
+geopath <- glue::glue(path[2], "/geopackage_q{question_numberA}{question_numberB}/census2016_{package}_vic_short.gpkg", 
+                            question_numberA = c("1","4","4","5","6","7"), 
+                            question_numberB = c("_q4","","","","",""), 
+                      package = c("spca","cldb","cldc", "clda", "cldh", "eqa"))
+geopath <- c("spca"=geopath[1],"cldb"=geopath[2],"cldc"=geopath[3],"clda"=geopath[4],"cldh"=geopath[5],"eqa"=geopath[6])
+
+spca <- data.frame(name = st_layers(geopath[1])["name"]) #q1-q3 
+clda <- data.frame(name = st_layers(geopath[2])["name"]) #q5
+cldh <- data.frame(name = st_layers(geopath[3])["name"]) #q6
+eqa <- data.frame(name = st_layers(geopath[4])["name"]) #q7
+# cldb,cldc -q4
+
+layer <- "census2016_spca_vic_sa1_short"
+```
+```{r}
+
+geomap <- function(df){
+  df %>% 
+          mutate(centroid = map(geom, st_centroid),
+                centroid = st_as_sfc(centroid, crs = st_crs(vic_map)),
+                which = as.integer(st_intersects(centroid, vic_map)),
+                Elect_div = ifelse(is.na(which),
+                "None",
+                vic_map$Elect_div[which])) %>%
+      filter(Elect_div %in% constituents) %>%
+                select(sa1_7digitcode_2016, Elect_div) 
+  
+}
+
+
+
+```
+```{r}
+sa1_spca_geomap <- map_dfr(geopath["spca"], ~{
+                              layer <- data.frame(name = st_layers(.x)["name"])
+                              df <- read_sf(.x, layer = layer$name[6], 
+                                            stringsAsFactors = FALSE)
+                              geomap(df)
+                            }, .id = "geopackage")
+sa1_clda_geomap <- map_dfr(geopath["clda"], ~{
+                              layer <- data.frame(name = st_layers(.x)["name"])
+                              df <- read_sf(.x, layer = layer$name[6], 
+                                            stringsAsFactors = FALSE)
+                              geomap(df)
+                            }, .id = "geopackage")
+sa1_cldh_geomap <- map_dfr(geopath["clda"], ~{
+                              layer <- data.frame(name = st_layers(.x)["name"])
+                              df <- read_sf(.x, layer = layer$name[6], 
+                                            stringsAsFactors = FALSE)
+                              geomap(df)
+                            }, .id = "geopackage")
+sa1_eqa_geomap <- map_dfr(geopath["eqa"], ~{
+                              layer <- data.frame(name = st_layers(.x)["name"])
+                              df <- read_sf(.x, layer = layer$name[6], 
+                                            stringsAsFactors = FALSE)
+                              geomap(df)
+                            }, .id = "geopackage")
+```
+```{r}
+sa1_cldb_geomap <- map_dfr(geopath["cldb"], ~{
+                              layer <- data.frame(name = st_layers(.x)["name"])
+                              df <- read_sf(.x, layer = layer$name[6], 
+                                            stringsAsFactors = FALSE)
+                              geomap(df)
+                            }, .id = "geopackage")
+
+sa1_cldc_geomap <- map_dfr(geopath["cldc"], ~{
+                              layer <- data.frame(name = st_layers(.x)["name"])
+                              df <- read_sf(.x, layer = layer$name[6], 
+                                            stringsAsFactors = FALSE)
+                              geomap(df)
+                            }, .id = "geopackage")
+sa1_cld_bc_geomap <- rbind(sa1_cldb_geomap,sa1_cldc_geomap)
+
+```
+```{r}
+sa1_clda_geomap <- map_dfr(geopath["clda"], ~{
+                              layer <- data.frame(name = st_layers(.x)["name"])
+                              df <- read_sf(.x, layer = layer$name[6], 
+                                            stringsAsFactors = FALSE)
+                              geomap(df)
+                            }, .id = "geopackage")
+```
+
+```{r}
+sa1_geomap <- map_dfr(geopath, ~{
+                              layer <- data.frame(name = st_layers(.x)["name"])
+                              df <- read_sf(.x, layer = layer$name[6], 
+                                            stringsAsFactors = FALSE)
+                              geomap(df)
+                            }, .id = "geopackage")
+
+
+```
+
+```{r}
+election_data_raw <- read_csv(election_paths[1], skip=1)
+elected_members <- read_csv(election_paths[2])
+```
+```{r}
+
+```
+
+
+
+# 🔍 Analysis
+
+## Q1
+
+1. (3 marks) How many people lived in each electoral division of interest?
+
+
+
+```{r tidyG01}
+
+clean_G01_G04_G09 <- function(df) {
+  
+   df %>% 
+    group_by(SA1_7DIGITCODE_2016) %>% 
+     pivot_longer(cols = -c(SA1_7DIGITCODE_2016,Elect_div,geom,geopackage),
+                  names_to = "category",
+                  values_to = "count") %>% 
+     filter(str_detect(category, 
+                      "(Age_)(\\d+)_(\\d+)(_yr_)([MFP])|(Age_85ov_)([MFP])|(Australian_citizen_)[MFP]|(Age_yr_)(\\d+)_(\\d+)_([MFP])|([MF])_Tot_Tot|([MF])(_Australia_)(\\d+)_(\\d+)|([MF])(_Australia_)(\\d+)(ov)")) %>%
+      unglue_unnest(category, 
+                   c("Age_{age_min=\\d+}_{age_max=\\d+}_yr_{sex=[MFP]}",
+                     "Age_{age_min=\\d+}{age_max=(\\d+|ov)}_{sex=[MFP]}", 
+                     "{citizenship=([A-Za-z]){10}}_citizen_{sex=[MFP]}", 
+                  "Age_yr_{age_min=\\d+}_{age_max=\\d+}_{sex=[MFP]}",
+                  "{sex=[MF]}_Tot_Tot",
+                  "{sex=[MF]}_Australia_{age_min=\\d+}_{age_max=\\d+}",
+                  "{sex=[MF]}_Australia_{age_min=\\d+}ov", 
+                  ),
+                   remove = FALSE) %>% 
+      mutate(across(starts_with("age"), as.numeric))
+}
+```
+
+```{r}
+sa1_g01 <- map_dfr(census_paths[1], ~{
+                df <- read_csv(.x) %>% 
+                  mutate(SA1_7DIGITCODE_2016 = as.character(SA1_7DIGITCODE_2016)) %>%
+                  right_join(sa1_spca_geomap,
+                             by=c("SA1_7DIGITCODE_2016"="sa1_7digitcode_2016"))
+                clean_G01_G04_G09(df)
+                })
+```
+
+```{r count_people_constituent}
+
+count_people_constituent <- sa1_g01 %>% 
+                             group_by(Elect_div) %>% 
+                              filter(sex == "P") %>% 
+                                summarise(population=sum(count))
+count_people_constituent
+
+```
+
+
+
+
+## Q2
+
+2. (6 marks) Show the age distribution (omitting those 80 years old or greater) of each electoral division of interest by plotting a barplot like below. State three interesting observations regarding the plot below with a possible reason why you see such observations using knowledge about the electoral division (if you do not know, search the internet to find out).
+
+```{r}
+sa1_g04A <- map_dfr(census_paths[2], ~{
+                df <- read_csv(.x) %>% 
+                  mutate(SA1_7DIGITCODE_2016 = as.character(SA1_7DIGITCODE_2016)) %>%
+                  right_join(sa1_spca_geomap,
+                             by=c("SA1_7DIGITCODE_2016"="sa1_7digitcode_2016"))
+                clean_G01_G04_G09(df)
+                })
+
+sa1_g04B <- map_dfr(census_paths[3], ~{
+                df <- read_csv(.x) %>% 
+                  mutate(SA1_7DIGITCODE_2016 = as.character(SA1_7DIGITCODE_2016)) %>%
+                  right_join(sa1_spca_geomap,
+                             by=c("SA1_7DIGITCODE_2016"="sa1_7digitcode_2016"))
+                clean_G01_G04_G09(df)
+                })
+sa1_g04 <- rbind(sa1_g04A,sa1_g04B)
+
+```
+
+
+```{r}
+#change the regex for q2 Age_yr_{age=\\d+}_{sex=[MFP]}
+
+population <- sa1_g04 %>% 
+      filter(sex == "P" & age_min < 80 ) %>%
+      group_by(Elect_div) %>%
+  summarise(population_division = sum(count))
+
+sa1_g04 %>% 
+      filter(sex == "P" & age_min < 80 ) %>%
+      group_by(Elect_div, age_min) %>%
+  summarise(populationbyage = sum(count)) %>% 
+  left_join(population, by = c("Elect_div"="Elect_div")) %>% 
+  mutate(percentage=populationbyage/population_division*10) %>% 
+        ggplot() +
+  geom_col(mapping = aes(x = age_min, y = percentage))+
+  facet_grid(Elect_div~.)
+```
+
+
+
+## Q3
+
+3. (4 marks) What are the percentages of Australian citizens for each electoral division of interest? Why do you think the percentage of Australian citizens is lower for Melbourne, Hotham and Macnamara?
+
+
+```{r}
+sa1_g01 %>% 
+   group_by(Elect_div) %>% 
+      filter(citizenship == "Australian" & sex == "P") %>% 
+         summarise(australian_citizens=sum(count)) %>% 
+            left_join(count_people_constituent, by = c("Elect_div"="Elect_div")) %>% 
+                mutate(percentage=(australian_citizens/population)*100) %>%
+                  arrange(desc(percentage))
+
+
+```
+
+
+## Q4
+
+4. (4 marks) What is an estimate of adult (i.e. aged 18 years old or over) Australian citizens in each electoral division of interest? State your assumptions for your estimate.
+
+
+```{r}
+sa1_g09_population <- map_dfr(census_paths[4:9], ~{
+                df <- read_csv(.x) %>% 
+                  mutate(SA1_7DIGITCODE_2016 = as.character(SA1_7DIGITCODE_2016)) %>%
+                  select(SA1_7DIGITCODE_2016, contains("_Tot_Tot")) %>%
+                  right_join(sa1_cldc_geomap,
+                             by=c("SA1_7DIGITCODE_2016" = "sa1_7digitcode_2016"))
+                clean_G01_G04_G09(df)
+                })
+
+
+sa1_g09_population_count <- sa1_g09_population %>% 
+     group_by(Elect_div) %>% 
+         summarise(population=sum(count))
+sa1_g09_population_count
+```
+
+```{r}
+sa1_aus_citizen_population <- map_dfr(census_paths[c(4,6,9)], ~{
+                df <- read_csv(.x) %>% 
+                  mutate(SA1_7DIGITCODE_2016 = as.character(SA1_7DIGITCODE_2016)) %>% 
+                  select(SA1_7DIGITCODE_2016, contains("Australia")) %>%
+                  right_join(sa1_cldc_geomap,
+                             by=c("SA1_7DIGITCODE_2016" = "sa1_7digitcode_2016"))
+                clean_G01_G04_G09(df)
+                })
+sa1_g09_aus_citizen_population_count <- sa1_aus_citizen_population %>% 
+  filter((age_min != 0) & (age_min != 5)) %>%
+     group_by(Elect_div) %>% 
+         summarise(adult_aus_citizen_population=sum(count)) %>% 
+  left_join(sa1_g09_population_count, by = c("Elect_div"="Elect_div")) 
+
+sa1_g09_aus_citizen_population_count 
+#assumption: people born inaustralia are citizens. 15-24 years considered as above 18.
+# estimate adult_aus_citizen_population-c+d (c is 15-17 year olds, d is other australian citizens)
+```
+
+
+
+## Q5
+
+5. (5 marks) The political members would like to know the composition of ethnic background of their constituents. Show the top 10 reported ancestry for each electoral division of interest with an appropriate graph. State one interesting observation from your graph.
+
+```{r}
+clean_G08 <- function(df) {
+  
+   df %>% 
+    group_by(SA1_7DIGITCODE_2016) %>% 
+     pivot_longer(cols = -c(SA1_7DIGITCODE_2016,Elect_div,geom,geopackage),
+                  names_to = "category",
+                  values_to = "count") %>%
+      unglue_unnest(category, 
+                    c("{ancestry=[A-Za-z]+|[A-Za-z]+_Abor|[A-Za-z]+_Lankan|[A-Za-z]+_African}_{parent=BP|FO|MO}_B_{birthofparent=OS|Aus}", 
+                     "{ancestry=[A-Za-z]+}_Birthplace_{birthofparent=not_stated}",
+                     "{ancestry=[A-Za-z]+}_{parent=Both}_parents_born_{birthofparent=Aust}",
+                   "{ancestry=[A-Za-z]+|[A-Za-z]+_Abor|[A-Za-z]+_Lankan}_{parent=BP|FO|MO}_{birthofparent=NS}"),
+                   remove = FALSE)
+}
+```
+
+
+```{r}
+sa1_ethnic_background <- map_dfr(census_paths[10], ~{
+                df <- read_csv(.x) %>% 
+                  mutate(SA1_7DIGITCODE_2016 = as.character(SA1_7DIGITCODE_2016)) %>% 
+                  select(-starts_with("Tot"),-starts_with("Ancestry"),-ends_with("Resp")) %>%
+                  right_join(sa1_clda_geomap,
+                             by=c("SA1_7DIGITCODE_2016" = "sa1_7digitcode_2016")) 
+                clean_G08(df)
+                })
+```
+
+```{r}
+anscestry_count <- data.frame(ancestry=NA, Elect_div=NA, population=NA)
+for (i in constituents) {
+  temp <- sa1_ethnic_background  %>% 
+    filter(Elect_div==i) %>%
+   group_by(ancestry, Elect_div) %>%
+    summarise(population = sum(count)) %>%
+      ungroup() %>% 
+    arrange(desc(population)) %>%
+     head(10)
+   anscestry_count <- rbind(anscestry_count,temp)
+}
+anscestry_count <- anscestry_count[-1,]
+anscestry_count_table <- anscestry_count%>%pivot_wider(names_from = Elect_div, values_from= ancestry) 
+```
+```{r}
+anscestry_count %>% 
+    ggplot() +
+     geom_col(mapping = aes(x=reorder(ancestry, -population),y=population)) +
+     facet_wrap(Elect_div~.,nrow = 4,scales = "free")+coord_flip()+theme(axis.text.x = element_text(angle=75))
+
+
+```
+
+
+## Q6
+
+6. (4 marks) What are the distribution of religious background in each electoral district of interest? Show
+this by using a plot. Report one interesting observation from what you see.
+
+```{r}
+clean_G14 <- function(df) {
+  
+   df %>% 
+    group_by(SA1_7DIGITCODE_2016) %>% 
+     pivot_longer(cols = -c(SA1_7DIGITCODE_2016,Elect_div,geom,geopackage),
+                  names_to = "category",
+                  values_to = "count") %>%
+    filter(str_detect(category,"Christianity_Tot_P")| str_detect(category,"[A-Z]([a-z]+)_P")| str_detect(category,"NRA_Tot_P") | str_detect(category,"ns_P")| str_detect(category,"reln_groups_P")) %>%
+    filter(!str_detect(category,"Christianity_|Christnty_|Christinty_|^Tot_|^Other")|str_detect(category,"Christianity_Tot_P"))%>% unglue_unnest(category, 
+                    c("{religion=Christianity}_Tot_P",
+                      "{religion=[A-Za-z]+}_P",
+                      "Othr_Rel_{religion=Aust_Abor_Trad_Rel|Sikhism}_P",
+                    "{religion=Othr}_Reln_Other_reln_groups_P",
+                    "SB_OSB_{religion=NRA}_Tot_P",
+                    "Religious_affiliation_{religion=ns}_P"
+                    ),
+                   remove = FALSE)
+}
+```
+
+
+```{r}
+sa1_religious_background <- map_dfr(census_paths[11], ~{
+                df <- read_csv(.x) %>% 
+                  mutate(SA1_7DIGITCODE_2016 = as.character(SA1_7DIGITCODE_2016)) %>% 
+                  right_join(sa1_cldh_geomap,
+                             by=c("SA1_7DIGITCODE_2016" = "sa1_7digitcode_2016")) 
+                clean_G14(df)
+                })
+
+sa1_religious_background <- sa1_religious_background %>% 
+  mutate(religion=case_when(str_detect(religion, "Othr") ~ "Other",
+                            str_detect(religion, "NRA") ~ "No Religious Affiliation",
+                            str_detect(religion, "ns") ~ "Not Stated",
+                            str_detect(religion, "Aust_Abor_Trad_Rel") ~ "Aboriginal",
+                            TRUE ~ religion))
+
+```
+
+```{r}
+sa1_religious_background %>%
+  ggplot() +
+  geom_sf(mapping = aes(geometry= geom, fill=Elect_div))
+```
+
+
+
+## Q7
+
+7. (4 marks) What are the level of the highest qualification the person has completed for each electoral
+division of interest? State one interesting observation with a possible explanation of that observation.
+
+## Q8
+
+List your data file names that you used here. 
+8. (2 marks) List all data used for the analysis (including its file name). Do not include any unused dataset.
+
+
+## Resources
+
+Cite your data sources, and software used here. 
+
+
