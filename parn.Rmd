@@ -1,0 +1,162 @@
+---
+title: "Characterising the constituents for the House of Representative members in Victoria"
+subtitle: "ETC5512 Assignment 2, Master of Business Analytics"
+author: "Prepared by Mohammed Faizan, 31939872, mfai0014@student.monash.edu" 
+date: '`r Sys.Date()`'
+bibliography: 
+- packages.bib
+biblio-style: authoryear-comp
+output: 
+  bookdown::html_document2:
+    includes:
+      before_body: header.html
+keep_md: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, 
+                      messages = FALSE, 
+                      warning = FALSE, fig.path = "Data/Figures", fig.align ="center")
+library(tidyverse)
+library(sf)
+library(glue)
+library(unglue)
+library(readr)
+library(sugarbag)
+library(kableExtra)
+```
+
+```{r writing_packages_bibliographies}
+knitr::write_bib(c(.packages()), "packages.bib")
+```
+
+### Task 1
+
+```{r, message = FALSE, warning = FALSE}
+election2022 <- read_csv("data/HouseDopByDivisionDownload-27966.csv", skip = 1)
+
+# Filter to only include the seats in Victoria
+marginal_seats <- election2022 %>% filter(StateAb == "VIC") %>% 
+  
+  
+  filter(CalculationType == "Preference Percent" & Elected == "Y") %>% 
+  group_by(DivisionNm) %>% filter(CountNumber == max(CountNumber))
+
+marginal_seats <- marginal_seats %>% select(StateAb,DivisionNm,CountNumber,Surname,GivenNm, PartyAb,CalculationType, CalculationValue) %>% 
+
+# Filter marginal_seats seats less than 56%  
+  mutate(marginal_seats = ifelse(CalculationValue < 56, "Y", "N")) %>% filter(marginal_seats == "Y") %>%
+
+# Make division name upper case so it can be joined later with map data
+mutate(DivisionNm = toupper(DivisionNm)) %>% arrange(DivisionNm)
+
+# marginal_seats %>%
+#    DT::datatable(width = 1160, height = 400, options = list(pageLength = 400))
+```
+
+
+```{r paths, include=FALSE}
+data_path <- here::here("data/")
+path <-  glue::glue(data_path, "australian_{source}_data_{year}/", 
+                    source = c("election", "census"), year = c("2019", "2016"))
+election_paths <- glue::glue(data_path, "/House{file}Download-24310.csv", 
+                        file = c("DopByDivision","MembersElected"))
+census_paths2016 <- glue::glue(data_path, "2016 Census GCP All Geographies for VIC/SA1/VIC/2016Census_G{number}{alpha}_VIC_SA1.csv", 
+                         number = c("01","02","36","54","54","54","54","55","55","55","55","56","56"), alpha = c("","","","A","B","C","D","A","B","C","D","A","B"))
+
+census_paths2021 <- glue::glue(data_path, "2021 Census GCP All Geographies for VIC/SA1/VIC/2021Census_G{number}{alpha}_VIC_SA1.csv", 
+                         number = c("02","36","54","54","54","54","55","55","55","55","56","56"), alpha = c("","","A","B","C","D","A","B","C","D","A","B"))
+```
+
+```{r electgeom, include=FALSE}
+vic_map_path <- glue::glue(data_path, "/vic-july-2021-esri/E_VIC21_region.shp")
+#vic_map_path <- glue::glue(data_path, "E_VIC21_region.shp")
+constituents <- marginal_seats$DivisionNm #put marginal constituents from q1 here
+vic_map <- read_sf(vic_map_path) #%>% filter(Elect_div %in% constituents)
+```
+
+```{r geopath, include=FALSE}
+geopath <- glue::glue(data_path, "census2021_cldb_vic_short.gpkg")
+```
+
+```{r constituentsa1boundariesmatched, include=FALSE}
+geomap <- function(df){
+  df %>% 
+          mutate(centroid = map(geom, st_centroid),
+                centroid = st_as_sfc(centroid, crs = st_crs(vic_map)),
+                which = as.integer(st_intersects(centroid, vic_map)),
+                Elect_div = ifelse(is.na(which),
+                "None",
+                vic_map$Elect_div[which])) %>%
+      #filter(Elect_div %in% constituents) %>%
+                dplyr::select(CED_CODE_2021, Elect_div, centroid) %>% 
+       unnest_wider(centroid) 
+
+    
+  }
+```
+```{r geomap, include=FALSE}
+sa1_geomap <- map_dfr(geopath, ~{
+                              layer <- data.frame(name = st_layers(.x)["name"])
+                              df <- read_sf(.x, layer = layer$name[6], 
+                                            stringsAsFactors = FALSE)
+                              geomap(df)
+                            })
+
+sa1_regions <- data.frame(CED_CODE_2021=as.character(sa1_geomap$CED_CODE_2021), Elect_div = sa1_geomap$Elect_div)
+
+vic_mapcentroid <- vic_map  %>% 
+          mutate(centroid = map(geometry, ~setNames(st_centroid(.x), c("x", "y"))),
+                centroid = st_as_sfc(centroid, crs = st_crs(vic_map))) %>%
+   unnest_wider(centroid) 
+```
+
+```{r electionsdata, include=FALSE}
+election_data_raw <- read_csv(election_paths[1], skip=1)
+elected_members <- read_csv(election_paths[2])
+```
+```{r electdivisions, fig.cap="Electoral Divisions of Interest"}
+vic_map %>%
+  ggplot() +
+  geom_sf(mapping = aes(geometry= geometry, fill=Elect_div))+
+  geom_sf_text(aes(geometry= geometry,label=Elect_div, colour="#000000")) +
+  theme_void() +
+  theme(legend.position = "none")
+```
+
+```{r cleanfunction, include=FALSE}
+
+clean_G02<- function(df) {
+  
+   df %>% 
+     pivot_longer(cols = -c(SA1_CODE_2021,Elect_div), 
+                  names_to = "category",
+                  values_to = "count") %>% 
+    filter(str_detect(category, "Age_yr_\\d+_P|Australian_citizen_P|Tot_P_P|P_Australia_[0-9]+_[0-9]+|P_Australia_85ov|[A-Za-z_]+_Tot_Resp") | !str_detect(category,"Australia_Tot")) %>%
+      unglue_unnest(category, 
+                   c( "{citizenship=Australian}_citizen_P", 
+                      "Age_yr_{age=\\d+}_P",
+                      "{sex=[MF]}_{population=Tot}_Tot",
+                      "P_{population=Australia}_{age_min=\\d+}_{age_max=\\d+}",
+                    "P_{population=Australia}_{age_min=85}ov",
+                    "{ancestry=[A-Za-z]+|[A-Za-z]+_Abor|[A-Za-z]+_Lankan|[A-Za-z]+_African|[A-Za-z]+_NS}_Tot_Resp"
+                      ),
+                   remove = FALSE) %>% 
+      mutate(across(starts_with("age"), as.numeric))
+      
+}
+```
+
+
+```{r g01read, include=FALSE}
+sa1_g02 <- map_dfr(census_paths2021[1], ~{
+                df <- read_csv(.x) %>% 
+                  mutate(CED_CODE_2021 = substr(SA1_CODE_2021,1,3)) %>%
+                  mutate(CED_CODE_2021=paste0('CED', CED_CODE_2021)) %>% 
+                  #select(Australian_citizen_P,Tot_P_P,SA1_7DIGITCODE_2016) %>%
+                  right_join(sa1_regions,
+                             by=c("CED_CODE_2021"="CED_CODE_2021")) 
+
+               # clean_G01_G04_G09(df)
+                })
+```
